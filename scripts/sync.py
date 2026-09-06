@@ -36,6 +36,7 @@ WINDOW_DAYS = int(os.environ.get("WINDOW_DAYS", "30"))
 PAGE_SIZE = 250
 MAX_PAGES = int(os.environ.get("MAX_PAGES", "400"))
 USER_AGENT = "bidledger/1.0 (open data reuse; TED Search API)"
+RETRYABLE_HTTP_CODES = {403, 429, 500, 502, 503, 504}
 
 
 def post(body, attempt=0):
@@ -49,8 +50,16 @@ def post(body, attempt=0):
         with urllib.request.urlopen(req, timeout=90) as r:
             return json.loads(r.read().decode())
     except urllib.error.HTTPError as e:
-        if e.code in (429, 500, 502, 503, 504) and attempt < 6:
-            wait = min(60, 2 ** attempt * 3)
+        # TED occasionally rejects an otherwise valid anonymous request with a
+        # transient 403.  A later scheduled run succeeds unchanged, so handle
+        # it like the API's other temporary/rate-limit responses instead of
+        # losing the whole daily build on the first page.
+        if e.code in RETRYABLE_HTTP_CODES and attempt < 6:
+            retry_after = e.headers.get("Retry-After") if e.headers else None
+            try:
+                wait = max(1, min(120, int(retry_after)))
+            except (TypeError, ValueError):
+                wait = min(60, 2 ** attempt * 3)
             print(f"  HTTP {e.code} -> retry in {wait}s")
             time.sleep(wait)
             return post(body, attempt + 1)
