@@ -923,7 +923,9 @@ rows, free to download and re-use.</p>
           desc=f"What {BRAND} is, where the data comes from, and how often it updates.",
           canonical="/about.html"))
 
-    write("/robots.txt", f"User-agent: *\nAllow: /\nSitemap: {BASE}/sitemap.xml\n")
+    write("/robots.txt", f"User-agent: *\nAllow: /\n"
+          f"Sitemap: {BASE}/sitemap.xml\n"
+          f"Sitemap: {BASE}/sitemap-google.txt\n")
     # ---- sitemap index --------------------------------------------------
     # One file per section rather than one 3 MB blob: Search Console reports
     # coverage per sitemap, so a section that stops being indexed shows up
@@ -961,7 +963,17 @@ rows, free to download and re-use.</p>
           + "".join(f"<sitemap><loc>{BASE}{f}</loc>"
                     f"<lastmod>{NOW.date()}</lastmod></sitemap>" for f in parts)
           + '</sitemapindex>')
-    print(f"sitemap: {len(urls)} urls across {len(parts)} files")
+
+    # Search Console has repeatedly failed to read the valid XML sitemap even
+    # though the same fetch succeeds for Googlebot and other search engines.
+    # Keep a single plain-text sitemap as the smallest possible independent
+    # submission path and diagnostic: one absolute URL per UTF-8 line, with no
+    # XML parser, nested index, or metadata involved.  The site currently fits
+    # below Google's 50,000-URL limit for a text sitemap.
+    if len(urls) > 50000:
+        raise RuntimeError("sitemap-google.txt would exceed Google's 50,000 URL limit")
+    write("/sitemap-google.txt", "".join(f"{BASE}{u}\n" for u in urls))
+    print(f"sitemap: {len(urls)} urls across {len(parts)} XML files + text fallback")
     faces = open(os.path.join(ROOT, "assets", "fonts.css"), encoding="utf-8").read()
     write("/style.css", faces + CSS)
     shutil.copytree(os.path.join(ROOT, "assets", "fonts"),

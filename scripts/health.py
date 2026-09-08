@@ -100,6 +100,15 @@ def main():
            if head(f"/sitemap-{p}.xml") != 200]
     check("sitemap sections reachable", not bad, ", ".join(bad) or "all 200")
 
+    try:
+        _, raw_text_smap = get("/sitemap-google.txt")
+        text_urls = raw_text_smap.decode("utf-8").splitlines()
+        text_ok = (0 < len(text_urls) <= 50000
+                   and all(url.startswith(BASE + "/") for url in text_urls))
+        check("Google text sitemap valid", text_ok, f"{len(text_urls):,} URLs")
+    except Exception as e:
+        check("Google text sitemap valid", False, repr(e))
+
     key = CFG.get("indexnow_key")
     check("IndexNow key file served", bool(key) and head(f"/{key}.txt") == 200)
 
