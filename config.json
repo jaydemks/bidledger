@@ -2,14 +2,10 @@
   "brand": "Bidledger",
   "tagline": "Every open EU public tender, in one place, updated daily.",
   "base_url": "https://jaydemks.github.io/bidledger",
-  "alerts_url": "https://bidledger.gumroad.com/subscribe",
-  "pro_url": "",
   "contact_email": "",
   "indexnow_key": "1eb8f5c92a2bc2aff65ca9daa11eaf41",
   "archive_days": 60,
   "google_site_verification": "8MEFWZomRmm5Z34b9rgF3XAJu2R6VQe7aOXHvfei2UU",
   "dataset_url": "https://huggingface.co/datasets/jaydem/eu-contract-awards",
-  "archive_url": "https://bidledger.gumroad.com/l/eu-contract-awards",
-  "bing_site_verification": "7336DACCD44C00991F2EFCA3AF195A5C",
-  "free_dataset_url": "https://bidledger.gumroad.com/l/eu-contract-awards-free"
+  "bing_site_verification": "7336DACCD44C00991F2EFCA3AF195A5C"
 }

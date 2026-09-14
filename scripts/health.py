@@ -13,6 +13,8 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
+from email.utils import parsedate_to_datetime
 from datetime import datetime, timezone
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -93,12 +95,32 @@ def main():
           and "localStorage" not in home)
 
     _, smap = get("/sitemap.xml")
-    smap = smap.decode("utf-8", "replace")
-    parts = smap.count("<sitemap>")
-    check("sitemap is an index", parts >= 5, f"{parts} sections")
-    bad = [p for p in ("core", "sectors", "countries", "cpv")
-           if head(f"/sitemap-{p}.xml") != 200]
-    check("sitemap sections reachable", not bad, ", ".join(bad) or "all 200")
+    try:
+        root = ET.fromstring(smap)
+        ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+        canonical_urls = [node.text for node in root.findall("sm:url/sm:loc", ns)]
+    except ET.ParseError:
+        canonical_urls = []
+    check("canonical sitemap valid", len(canonical_urls) >= 5000,
+          f"{len(canonical_urls):,} URLs")
+
+    try:
+        _, raw_index = get("/sitemap-index.xml")
+        index_root = ET.fromstring(raw_index)
+        ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+        locations = [node.text for node in index_root.findall("sm:sitemap/sm:loc", ns)]
+    except Exception:
+        locations = []
+    check("diagnostic sitemap index", len(locations) >= 5, f"{len(locations)} sections")
+    bad = []
+    for location in locations:
+        path = urllib.parse.urlparse(location).path
+        if BASE_PATH and path.startswith(BASE_PATH + "/"):
+            path = path[len(BASE_PATH):]
+        if head(path) != 200:
+            bad.append(path)
+    check("sitemap sections reachable", bool(locations) and not bad,
+          ", ".join(bad) or "all 200")
 
     try:
         _, raw_text_smap = get("/sitemap-google.txt")
@@ -111,6 +133,28 @@ def main():
 
     key = CFG.get("indexnow_key")
     check("IndexNow key file served", bool(key) and head(f"/{key}.txt") == 200)
+
+    for path in ("/feed/s-45.xml", "/feed/c-ITA.xml"):
+        try:
+            _, raw_feed = get(path)
+            feed = ET.fromstring(raw_feed)
+            dates = [item.findtext("pubDate", "") for item in feed.findall("./channel/item")]
+            feed_ok = feed.tag == "rss" and bool(dates)
+            for value in dates:
+                parsedate_to_datetime(value)
+        except Exception:
+            feed_ok = False
+        check(f"valid RSS {path}", feed_ok)
+
+    public_copy = home
+    for path in ("/alerts.html", "/export.html", "/privacy.html"):
+        try:
+            _, raw_page = get(path)
+            public_copy += raw_page.decode("utf-8", "replace")
+        except Exception:
+            pass
+    check("retired Gumroad links absent", "gumroad.com" not in public_copy.lower())
+    check("retired daily email absent", "daily email" not in public_copy.lower())
 
     for path in ("/cpv.html", "/api.html", "/privacy.html", "/alerts.html"):
         check(f"page {path}", head(path) == 200)

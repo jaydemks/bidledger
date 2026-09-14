@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+from email.utils import format_datetime
 from urllib.parse import urlparse
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -173,7 +174,7 @@ def page(title, body, desc="", canonical="", extra_head=""):
 <header class="mast"><div class="wrap"><a class="logo" href="/">Bid<em>ledger</em></a>
 <nav><a href="/sectors.html">Sectors</a><a href="/countries.html">Countries</a>
 <a href="/winners.html">Who wins</a><a href="/cpv.html">CPV codes</a><a href="/export.html">CSV</a><a href="/api.html">API</a>
-<a href="/alerts.html">Daily alerts</a><a href="/about.html">About</a></nav></div></header>
+<a href="/alerts.html">Follow updates</a><a href="/about.html">About</a></nav></div></header>
 <div class="wrap">{body}</div>
 <footer><div class="wrap">
 Data source: <a href="https://ted.europa.eu/">Tenders Electronic Daily (TED)</a>, the official
@@ -245,16 +246,36 @@ def write(path, content):
 
 
 def rss(title, link, items):
+    def published(value):
+        try:
+            dt = datetime.fromisoformat(value or "")
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return format_datetime(dt)
+        except (TypeError, ValueError):
+            return format_datetime(NOW)
+
+    # The pages are ordered by deadline; a feed must instead expose the most
+    # recently published notices first or an RSS reader will not see new work.
+    items = sorted(items, key=lambda item: item.get("p") or "", reverse=True)
     entries = "".join(f"""<item><title>{esc(i['t'])}</title>
 <link>{BASE}/n/{esc(i['id'])}.html</link>
 <guid isPermaLink="false">{esc(i['id'])}</guid>
-<pubDate>{esc(i.get('p'))}</pubDate>
-<description>{esc(meta.country_name(i.get('c')))} &mdash; {esc(i.get('b'))} &mdash; deadline {esc(deadline_bits(i['d'])[0])}</description>
+<pubDate>{published(i.get('p'))}</pubDate>
+<description>{esc(meta.country_name(i.get('c')))} — {esc(i.get('b'))} — deadline {esc(deadline_bits(i['d'])[0])}</description>
 </item>""" for i in items[:60])
     return f"""<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel>
 <title>{esc(title)}</title><link>{BASE}{link}</link>
-<description>Open EU public tenders &mdash; {esc(title)}</description>
+<description>Open EU public tenders — {esc(title)}</description>
+<lastBuildDate>{format_datetime(NOW)}</lastBuildDate><language>en</language>
 {entries}</channel></rss>"""
+
+
+def cpv_notice_url(code, open_codes):
+    """Return a real CPV detail page or a pre-filled vocabulary search."""
+    if not code:
+        return ""
+    return f"/cpv/{code}.html" if code in open_codes else f"/cpv.html?q={code}"
 
 
 def main():
@@ -284,6 +305,7 @@ def main():
         by_country[n.get("c") or "XXX"].append(n)
         for d in n.get("cpv", []):
             by_sector[d].append(n)
+    open_cpv_codes = {n.get("cpvf") for n in rows if n.get("cpvf")}
 
     urls = ["/", "/sectors.html", "/countries.html", "/winners.html",
             "/alerts.html", "/about.html"]
@@ -294,6 +316,12 @@ def main():
         cpv_links = ", ".join(
             f'<a href="/s/{c}.html">{esc(meta.cpv_label(c))}</a>'
             for c in n.get("cpv", []))
+        cpvf = n.get("cpvf")
+        if cpvf:
+            cpv_path = cpv_notice_url(esc(cpvf), open_cpv_codes)
+            main_cpv = f'<a href="{cpv_path}">{esc(cpvf)}</a>'
+        else:
+            main_cpv = "&mdash;"
         desc = (f'<div class="desc">{esc(n["desc"])}</div>' if n.get("desc") else "")
         div = (n.get("cpv") or ["00"])[0]
         if closed:
@@ -309,9 +337,8 @@ def main():
             lede = (f'<p class="sub">Open call for tenders published in the EU Official '
                     f'Journal. {("Closes in %d days." % days) if 0 <= days < 400 else ""}</p>')
             follow = ('<div class="note"><h2>Rather not check this page every morning?</h2>'
-                      '<p>Get the new tenders that match your sector and country in one '
-                      'daily email.</p>'
-                      '<a class="btn" href="/alerts.html">Set up alerts</a></div>')
+                      '<p>Follow new tenders with the free RSS feeds, CSV exports or JSON API.</p>'
+                      '<a class="btn" href="/alerts.html">Follow updates</a></div>')
         body = f"""<div class="detail">
 <div class="crumb"><a href="/">Home</a> / <a href="/c/{esc(n.get('c'))}.html">{esc(meta.country_name(n.get('c')))}</a></div>
 {'<p class="closed">Closed</p>' if closed else ''}
@@ -324,7 +351,7 @@ def main():
 <dt>Submission deadline</dt><dd class="{'due' if 0 <= days <= 7 else ''}">{esc(dl) or '&mdash;'}</dd>
 <dt>Contract type</dt><dd>{esc(meta.CONTRACT_NATURE.get(n.get('nat'), n.get('nat') or '&mdash;'))}</dd>
 <dt>Sector (CPV)</dt><dd>{cpv_links or '&mdash;'}</dd>
-<dt>Main CPV code</dt><dd>{f'<a href="/cpv/{esc(n["cpvf"])}.html">{esc(n["cpvf"])}</a>' if n.get('cpvf') else '&mdash;'}</dd>
+<dt>Main CPV code</dt><dd>{main_cpv}</dd>
 <dt>Place of performance</dt><dd>{esc(n.get('nuts')) or '&mdash;'}</dd>
 <dt>Published</dt><dd>{esc(n.get('p'))}</dd>
 <dt>TED reference</dt><dd>{esc(n['id'])}</dd>
@@ -403,10 +430,9 @@ rebuilt every morning from the EU Official Journal.</p>
 {"".join(card(n) for n in piece)}
 {nav}
 {f'<h2>The CPV codes used here</h2><div class="cpv">{code_rows}</div>' if code_rows and pg == 1 else ''}
-<div class="note"><h2>Get these by email</h2>
-<p>New {esc(sname.lower())} tenders in {esc(cname)}, in one message each morning,
-instead of checking this page.</p>
-<a class="btn" href="/alerts.html">Set up alerts</a>
+<div class="note"><h2>Follow new tenders</h2>
+<p>Use the free feeds and data exports instead of checking this page.</p>
+<a class="btn" href="/alerts.html">All update options</a>
 &nbsp;<a class="btn" href="/feed/s-{esc(d)}.xml">RSS for this sector</a></div>
 <p class="sub">See also: <a href="/c/{esc(c)}.html">every open tender in {esc(cname)}</a>
 &middot; <a href="/s/{esc(d)}.html">{esc(sname)} across the EU</a></p>"""
@@ -811,11 +837,9 @@ Free, no sign-up, and you may re-use it &mdash; it is public data.</p>
 award published in the Official Journal, with the winning company and the value
 in euro — is a separate dataset of 374,443 rows, free to download and re-use.</p>
 <a class="btn" href="{CFG['dataset_url']}" rel="noopener">Contract awards dataset &rarr;</a>
-<p class="sub" style="margin-top:14px">That file covers the last twelve months and is
-free. The two-year run &mdash; 719,960 awards, refreshed monthly &mdash;
-<a href="{CFG['archive_url']}" rel="noopener">is sold to pay for the work</a>.</p></div>
+</div>
 <div class="note"><h2>Prefer JSON?</h2>
-<p>The same data is available as an API with no key and no rate limit.</p>
+<p>The same data is available as a keyless static API. Please cache responses and use it reasonably.</p>
 <a class="btn" href="/api.html">API documentation</a></div>"""
     write("/export.html", page(f"Open EU tenders as CSV | {BRAND}", export_body,
           desc=f"Download all {len(rows):,} open EU public tenders as a CSV "
@@ -890,10 +914,9 @@ pulled every day from the EU Official Journal and made searchable. Free, no acco
 <select id="fs"><option value="">All sectors</option>{''.join(f'<option value="{d}">{esc(meta.cpv_label(d))}</option>' for d in sorted(by_sector))}</select>
 </div>
 <div id="res"><h2>Closing soonest</h2>{''.join(card(n) for n in closing)}</div>
-<div class="note"><h2>Get them by email instead</h2>
-<p>One short email a day with the new tenders in your sector and country.
-No dashboard to remember, no account to create.</p>
-<a class="btn" href="/alerts.html">Set up daily alerts</a></div>
+<div class="note"><h2>Follow new tenders automatically</h2>
+<p>Use a free RSS feed for a country or sector, download CSV files, or connect to the JSON API.</p>
+<a class="btn" href="/alerts.html">Follow updates</a></div>
 <div class="note"><h2>And who won the ones that already closed?</h2>
 <p>Every contract award published in the Official Journal &mdash; the winning company,
 the buyer, the sector and the value in euro &mdash; is a separate dataset of 374,443
@@ -903,8 +926,8 @@ rows, free to download and re-use.</p>
     write("/index.html", page(f"{BRAND} — {CFG['tagline']}", home,
           desc=CFG["tagline"], canonical="/", extra_head=SEARCH_JS))
 
-    write("/alerts.html", page(f"Daily tender alerts | {BRAND}", ALERTS_BODY,
-          desc="Get new EU public tenders matching your sector by email, every morning.",
+    write("/alerts.html", page(f"Follow tender updates | {BRAND}", ALERTS_BODY,
+          desc="Follow new EU public tenders through free RSS feeds, CSV exports and a JSON API.",
           canonical="/alerts.html"))
     write("/api.html", page(f"Free EU tenders API | {BRAND}",
           API_BODY.replace("{ARCHIVE_DAYS}", str(ARCHIVE_DAYS)),
@@ -958,22 +981,23 @@ rows, free to download and re-use.</p>
                   f'{body}</urlset>')
             parts.append(fname)
 
-    write("/sitemap.xml", '<?xml version="1.0" encoding="UTF-8"?>'
+    write("/sitemap-index.xml", '<?xml version="1.0" encoding="UTF-8"?>'
           '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
           + "".join(f"<sitemap><loc>{BASE}{f}</loc>"
                     f"<lastmod>{NOW.date()}</lastmod></sitemap>" for f in parts)
           + '</sitemapindex>')
 
-    # Search Console has repeatedly failed to read the valid XML sitemap even
-    # though the same fetch succeeds for Googlebot and other search engines.
-    # Keep a single plain-text sitemap as the smallest possible independent
-    # submission path and diagnostic: one absolute URL per UTF-8 line, with no
-    # XML parser, nested index, or metadata involved.  The site currently fits
-    # below Google's 50,000-URL limit for a text sitemap.
+    # Keep the canonical sitemap as the simplest possible shape for Search
+    # Console: one URL set, below both the 50,000 URL and 50 MB limits. The
+    # section index remains available above for diagnostics and other crawlers.
     if len(urls) > 50000:
-        raise RuntimeError("sitemap-google.txt would exceed Google's 50,000 URL limit")
+        raise RuntimeError("canonical sitemaps would exceed Google's 50,000 URL limit")
+    sitemap_body = "".join(f"<url><loc>{BASE}{u}</loc></url>" for u in urls)
+    write("/sitemap.xml", '<?xml version="1.0" encoding="UTF-8"?>'
+          '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+          f'{sitemap_body}</urlset>')
     write("/sitemap-google.txt", "".join(f"{BASE}{u}\n" for u in urls))
-    print(f"sitemap: {len(urls)} urls across {len(parts)} XML files + text fallback")
+    print(f"sitemap: {len(urls)} URLs; {len(parts)} diagnostic sections + text fallback")
     faces = open(os.path.join(ROOT, "assets", "fonts.css"), encoding="utf-8").read()
     write("/style.css", faces + CSS)
     shutil.copytree(os.path.join(ROOT, "assets", "fonts"),
@@ -1028,6 +1052,7 @@ var out=[];for(var i=0;i<D.length;i++){var r=D[i];
 if(r[0].indexOf(t)===0||r[1].toLowerCase().indexOf(t)>=0)out.push(r)}
 out.sort(function(a,b){return b[2]-a[2]});draw(out,t)}
 var tmr;q.addEventListener('input',function(){clearTimeout(tmr);tmr=setTimeout(run,140)});
+var initial=new URLSearchParams(location.search).get('q');if(initial){q.value=initial;run()}
 });
 </script>"""
 
@@ -1055,12 +1080,11 @@ document.getElementById('fs').addEventListener('change',run)});});
 </script>"""
 
 ALERTS_BODY = f"""<h1>Following tenders without checking a website</h1>
-<p class="sub">Nobody actually opens a procurement portal every morning. These are the
-ways to have the new tenders come to you instead.</p>
+<p class="sub">Free, open ways to follow new tenders without repeatedly checking the site.</p>
 
 <h2>RSS, per sector and per country</h2>
 <p>Every sector page and every country page has its own feed. Put it in your reader,
-your Slack, or your Teams channel, and new tenders arrive as they are published.
+your Slack, or your Teams channel. Each feed lists the newest published tenders first.
 No sign-up, no email address, nothing to cancel, and nothing about you is recorded
 &mdash; we never learn that you subscribed.</p>
 <p><a href="/sectors.html">Pick a sector &rarr;</a> &nbsp;
@@ -1073,17 +1097,9 @@ to the official notice. Rebuilt every morning, same as the pages.</p>
 <p><a href="/export.html">Download a spreadsheet &rarr;</a></p>
 
 <h2>The API</h2>
-<p>If you would rather wire it into something yourself, the whole index is JSON, with no
-key and no rate limit.</p>
+<p>If you would rather wire it into something yourself, the whole index is available as
+keyless JSON files. Please cache responses rather than polling them.</p>
 <p><a href="/api.html">Read the API documentation &rarr;</a></p>
-
-<div class="note"><h2>Or be told when things change</h2>
-<p>There is a subscribe page for that, and it is deliberately not on this site: it is
-hosted by Gumroad, who receive the address, hold it, and send the messages under their
-own privacy notice and their own unsubscribe link. Nothing about you is collected here
-&mdash; following the link is the only thing that happens on our side, and the
-<a href="/privacy.html">privacy page</a> spells out the rest.</p>
-<a class="btn" href="{CFG['alerts_url']}" rel="noopener">Subscribe on Gumroad &rarr;</a></div>
 
 <h2>Why this exists</h2>
 <p>EU tender data is public and free, but it is published in a form built for lawyers,
@@ -1091,9 +1107,9 @@ not for the small companies that could win the work. {BRAND} does one thing: it 
 that firehose and makes it readable, searchable, and pushable.</p>"""
 
 API_BODY = f"""<h1>A free API for open EU tenders</h1>
-<p class="sub">Every page on this site is also a JSON endpoint. No key, no sign-up, no
-rate limit, and <code>Access-Control-Allow-Origin: *</code> on everything &mdash; so you
-can call it straight from a browser. Rebuilt once a day from the EU Official Journal.</p>
+<p class="sub">The main collections on this site are also available as JSON endpoints.
+No key or sign-up is required, and <code>Access-Control-Allow-Origin: *</code> lets you
+call them straight from a browser. Rebuilt once a day from the EU Official Journal.</p>
 
 <h2>Endpoints</h2>
 <div class="cpv">
@@ -1151,9 +1167,8 @@ published as a dataset on Hugging Face, free and re-usable.</p>
 <p><a href="{CFG['dataset_url']}" rel="noopener">huggingface.co/datasets/jaydem/eu-contract-awards</a></p></div>
 
 <div class="note"><h2>Want the tenders, not the JSON?</h2>
-<p>Every sector and country page has an RSS feed, and the daily email lands in your
-inbox instead.</p>
-<a class="btn" href="/alerts.html">Daily alerts</a></div>"""
+<p>Every sector and country page has a free RSS feed.</p>
+<a class="btn" href="/alerts.html">Follow updates</a></div>"""
 
 CONTACT = (f'<a href="mailto:{CFG["contact_email"]}">{CFG["contact_email"]}</a>'
            if CFG.get("contact_email") else
@@ -1197,21 +1212,6 @@ want it changed or removed, the correction has to be made at the source, on TED,
 this site is rebuilt from it every day and would otherwise restore the old text. If you
 believe something here should not be shown, write to us at {CONTACT} and we will look
 at it.</p>
-
-<h2>The one place an address can be given</h2>
-<p>There is a subscribe page for people who want to hear when the data changes, and it is
-deliberately somewhere else: <a href="{CFG['alerts_url']}" rel="noopener">on Gumroad</a>.
-If you use it, <b>Gumroad</b> is who receives your address, stores it and sends the
-messages, under
-<a href="https://gumroad.com/privacy" rel="nofollow noopener">their privacy notice</a>,
-with their confirmation step and their unsubscribe link in every message. They are the
-data controller for that list.</p>
-<p>This was a deliberate choice rather than a shortcut. Putting the form here would mean
-holding addresses on this side, and the whole point of the page you are reading is that
-there is nothing to hold. The link leaves; nothing arrives.</p>
-<p>If that ever changes &mdash; a form on this site, an account, anything that collects
-here &mdash; it will be described on this page <b>before</b> the first address is taken,
-not after. Nothing is gathered quietly in the meantime.</p>
 
 <h2>Getting in touch</h2>
 <p>Questions about any of this: {CONTACT}.</p>

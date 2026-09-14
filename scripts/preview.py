@@ -33,7 +33,7 @@ font-size:13px;color:var(--mut);margin:22px 0 0;border-radius:2px}}
 .demo b{{color:var(--ink)}}
 </style>
 <header class="mast"><div class="wrap"><a class="logo" href="#">Tender<em>Pulse</em></a>
-<nav><a href="#sectors">Sectors</a><a href="#alerts">Daily alerts</a>
+<nav><a href="#sectors">Sectors</a><a href="#alerts">Follow updates</a>
 <a href="https://ted.europa.eu/" target="_blank" rel="noopener">Source: TED</a></nav></div></header>
 
 <div class="wrap">
@@ -65,10 +65,9 @@ calls at any moment &mdash; with a page per notice, per sector and per country.<
 <h2 id="list-h">Closing soonest</h2>
 <div id="res"></div>
 
-<div class="note" id="alerts"><h2>Get them by email instead</h2>
-<p>One short email each morning with only the new tenders that match your sector,
-your country and your keywords. No portal to check, nothing to remember.</p>
-<a class="btn" href="#">Set up daily alerts</a></div>
+<div class="note" id="alerts"><h2>Follow updates</h2>
+<p>The production site provides free RSS feeds, CSV exports and a JSON API.</p>
+<a class="btn" href="#">See update options</a></div>
 
 <h2 id="sectors">Browse by sector</h2>
 <div class="index">{sec_index}</div>

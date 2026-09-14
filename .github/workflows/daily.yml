@@ -80,6 +80,9 @@ jobs:
       - name: Build the site
         run: cd scripts && python build.py
 
+      - name: Validate the generated site
+        run: python scripts/validate_site.py
+
       - uses: actions/configure-pages@v6
         with:
           enablement: true
@@ -110,6 +113,30 @@ jobs:
     needs: deploy
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Resolve the canonical site URL
+        run: |
+          url="${{ vars.SITE_URL }}"
+          if [ -z "$url" ]; then
+            owner=$(echo "${GITHUB_REPOSITORY%%/*}" | tr '[:upper:]' '[:lower:]')
+            url="https://${owner}.github.io/${GITHUB_REPOSITORY#*/}"
+          fi
+          echo "SITE_URL=$url" >> "$GITHUB_ENV"
+
+      - name: Check the deployed site
+        run: |
+          for attempt in 1 2 3; do
+            python scripts/health.py && exit 0
+            echo "live site not ready yet (attempt $attempt)"
+            sleep 20
+          done
+          exit 1
+
       - id: get
         continue-on-error: true
         uses: actions/download-artifact@v8
@@ -122,10 +149,16 @@ jobs:
           set -eu
           n=$(jq '.urlList | length' indexnow.json)
           echo "submitting $n URLs"
-          code=$(curl -sS -o response.txt -w '%{http_code}' -X POST             -H 'Content-Type: application/json; charset=utf-8'             --data-binary @indexnow.json             https://api.indexnow.org/indexnow)
-          echo "IndexNow replied $code"
-          cat response.txt || true
-          case "$code" in
-            200|202) ;;
-            *) echo "::warning::IndexNow returned $code" ;;
-          esac
+          for attempt in 1 2 3; do
+            code=$(curl -sS -o response.txt -w '%{http_code}' -X POST \
+              -H 'Content-Type: application/json; charset=utf-8' \
+              --data-binary @indexnow.json https://api.indexnow.org/indexnow) || code=000
+            echo "IndexNow replied $code (attempt $attempt)"
+            cat response.txt || true
+            case "$code" in
+              200|202) exit 0 ;;
+            esac
+            sleep $((attempt * 5))
+          done
+          echo "::error::IndexNow rejected the request after 3 attempts"
+          exit 1

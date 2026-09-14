@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Boil 720,000 awards down to something the site build can carry.
 
-The award store is 98 MB and deliberately kept out of git — it is the thing
-being sold. But the pages that answer "who wins this kind of work here" only
+The award store is 98 MB and deliberately kept out of git to keep the repository
+small. But the pages that answer "who wins this kind of work here" only
 need the shape of it: how many contracts each supplier took, what they were
 worth, and a handful of recent examples. That is a few megabytes, which can
 live in the repository and be read by the build on every run.

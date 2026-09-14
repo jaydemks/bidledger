@@ -46,9 +46,10 @@ work** and **The contract awards dataset** below.
 
 ## A free API
 
-Every collection on the site is also a JSON file, served by GitHub Pages with
-`Access-Control-Allow-Origin: *`. No key, no sign-up, no rate limit — you can call it
-from a browser.
+The main collections on the site are also JSON files, served by GitHub Pages with
+`Access-Control-Allow-Origin: *`. No key or sign-up is required, and you can call them
+from a browser. This is a static public service hosted on GitHub Pages, so clients should
+cache responses and use it reasonably.
 
 | Endpoint | What it returns |
 |---|---|
@@ -149,6 +150,9 @@ The site sets no cookies, collects no personal data, has no analytics or trackin
 any kind, and makes no third-party requests at all: the typefaces are served from this
 domain, so reading a page tells nobody but GitHub that you were here. The fonts are in
 `assets/fonts/` under the SIL Open Font License.
+
+There is no paid tier. The site, API, CSV and RSS feeds are public, and the contract
+awards dataset linked above is free on Hugging Face.
 
 ## Licence
 
