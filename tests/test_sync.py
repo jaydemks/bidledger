@@ -1,4 +1,5 @@
 import importlib.util
+import http.client
 import pathlib
 import unittest
 from unittest import mock
@@ -23,6 +24,31 @@ class Response:
 
 
 class PostRetryTests(unittest.TestCase):
+    @mock.patch.object(sync.time, "sleep")
+    @mock.patch.object(sync.urllib.request, "urlopen")
+    def test_retries_transport_failure_on_same_request(self, urlopen, sleep):
+        for error in (TimeoutError("read timed out"), ConnectionResetError(),
+                      http.client.RemoteDisconnected(),
+                      http.client.IncompleteRead(b"partial")):
+            with self.subTest(error=type(error).__name__):
+                urlopen.reset_mock()
+                sleep.reset_mock()
+                urlopen.side_effect = [error, Response()]
+                self.assertEqual(sync.post({"page": 83}), {"notices": []})
+                self.assertEqual(urlopen.call_count, 2)
+                first, second = urlopen.call_args_list
+                self.assertEqual(first.args[0].data, second.args[0].data)
+                sleep.assert_called_once_with(3)
+
+    @mock.patch.object(sync.time, "sleep")
+    @mock.patch.object(sync.urllib.request, "urlopen")
+    def test_persistent_timeout_stops_after_bounded_retries(self, urlopen, sleep):
+        urlopen.side_effect = TimeoutError("read timed out")
+        with self.assertRaises(TimeoutError):
+            sync.post({"page": 83})
+        self.assertEqual(urlopen.call_count, 7)
+        self.assertEqual(sleep.call_count, 6)
+
     @mock.patch.object(sync.time, "sleep")
     @mock.patch.object(sync.urllib.request, "urlopen")
     def test_retries_transient_403(self, urlopen, sleep):

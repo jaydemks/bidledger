@@ -6,6 +6,7 @@ TED Search API: https://docs.ted.europa.eu/api/latest/index.html
 Anonymous access, no API key required.
 """
 import json
+import http.client
 import os
 import time
 import urllib.request
@@ -64,7 +65,8 @@ def post(body, attempt=0):
             time.sleep(wait)
             return post(body, attempt + 1)
         raise
-    except urllib.error.URLError:
+    except (urllib.error.URLError, TimeoutError, ConnectionError,
+            http.client.RemoteDisconnected, http.client.IncompleteRead):
         if attempt < 6:
             time.sleep(min(60, 2 ** attempt * 3))
             return post(body, attempt + 1)
