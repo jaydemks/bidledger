@@ -24,6 +24,15 @@ class Response:
 
 
 class PostRetryTests(unittest.TestCase):
+    @mock.patch.object(sync, "save_store")
+    @mock.patch.object(sync, "archive")
+    @mock.patch.object(sync, "fetch_all", side_effect=TimeoutError("read timed out"))
+    def test_failed_fetch_does_not_modify_stores(self, fetch_all, archive, save_store):
+        with self.assertRaises(TimeoutError):
+            sync.main()
+        archive.assert_not_called()
+        save_store.assert_not_called()
+
     @mock.patch.object(sync.time, "sleep")
     @mock.patch.object(sync.urllib.request, "urlopen")
     def test_retries_transport_failure_on_same_request(self, urlopen, sleep):

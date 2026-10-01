@@ -3,7 +3,7 @@ name: Daily sync and deploy
 on:
   schedule:
     # GitHub drops scheduled runs under load rather than queueing them, so ask
-    # twice. The build is idempotent: the second run of a quiet day just
+    # three times. The build is idempotent: later runs of a quiet day just
     # rebuilds the same pages.
     - cron: "17 5 * * *"    # 05:17 UTC, after the morning TED publication
     - cron: "37 13 * * *"   # 13:37 UTC, in case the first one never fires
@@ -33,6 +33,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
 
@@ -46,7 +47,22 @@ jobs:
       - name: Pull new notices from TED
         env:
           WINDOW_DAYS: ${{ github.event.inputs.window_days || '30' }}
-        run: python scripts/sync.py
+        run: |
+          set -eu
+          for attempt in 1 2 3; do
+            # A stalled API must not hold the deployment queue indefinitely.
+            # Fetching completes before sync.py modifies the store, and merging
+            # is idempotent, so restarting a failed sync is safe.
+            if timeout 15m python -u scripts/sync.py; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "TED sync failed; retrying in $((attempt * 30)) seconds"
+              sleep $((attempt * 30))
+            fi
+          done
+          echo "::error::TED sync failed after 3 attempts; retaining the previous deployment"
+          exit 1
 
       - name: Commit the updated store
         run: |
